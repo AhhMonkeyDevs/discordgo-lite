@@ -1,4 +1,4 @@
-module github.com/AndrewWilson214/discordgo
+module github.com/AhhMonkeyDevs/discordgo-lite
 
 go 1.15
 
