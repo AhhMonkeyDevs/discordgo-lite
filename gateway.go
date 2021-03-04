@@ -3,29 +3,35 @@ package discordgo
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/gorilla/websocket"
+	"log"
+	"os"
 	"time"
 )
 
 type GatewayConnection struct {
-	Url string
-	conn              *websocket.Conn
-	sessionID         string
-	lastSequence      int
-	heartbeatInterval time.Duration
-	lastHeartbeatAck  *time.Time
-	eventHandler      func(eventName string, eventData json.RawMessage)
-	token             string
-	intents           int
-	active bool
-	closed chan struct{}
-	heartbeatChannel chan int
-	lastConnection *time.Time
+	Url                          string
+	conn                         *websocket.Conn
+	sessionID                    string
+	lastSequence                 int
+	heartbeatInterval            time.Duration
+	lastHeartbeatAck             *time.Time
+	eventHandler                 func(eventName string, eventData json.RawMessage)
+	token                        string
+	intents                      int
+	active                       bool
+	closed                       chan struct{}
+	heartbeatChannel             chan int
+	lastConnection               *time.Time
 	reconnectionStartingWaitTime time.Duration
+	logger                       *log.Logger
 }
 
 func ConnectToGateway(token string, intents int, handler func(eventName string, eventData json.RawMessage)) (*GatewayConnection, error) {
+	logger := log.New(os.Stdout, "DiscordGo-Lite", 0)
+
+	logger.Print("DiscordGo-Lite V0.1.4")
+
 	var gatewayInfo = make(chan []byte)
 	NewRestRequest().
 		Method("GET").
@@ -45,40 +51,41 @@ func ConnectToGateway(token string, intents int, handler func(eventName string, 
 	}
 
 	c := GatewayConnection{
-		Url: gatewayResponse.Url,
-		token: token,
-		intents: intents,
-		eventHandler: handler,
-		closed: make(chan struct{}),
-		heartbeatChannel: make(chan int),
-		active: true,
+		Url:                          gatewayResponse.Url,
+		token:                        token,
+		intents:                      intents,
+		eventHandler:                 handler,
+		closed:                       make(chan struct{}),
+		heartbeatChannel:             make(chan int),
+		active:                       true,
 		reconnectionStartingWaitTime: time.Second,
+		logger:                       logger,
 	}
 
 	c.debug("Received Gateway URL: " + gatewayResponse.Url)
 
-	go func(){
+	go func() {
 		defer close(c.closed)
 		defer close(c.heartbeatChannel)
-		for c.active{
-			if c.lastConnection != nil{
-				if time.Now().Sub(*c.lastConnection) < time.Minute{ //if its already done a connection in the last minute
+		for c.active {
+			if c.lastConnection != nil {
+				if time.Now().Sub(*c.lastConnection) < time.Minute { //if its already done a connection in the last minute
 					c.debug("Delaying reconnection for " + c.reconnectionStartingWaitTime.String())
 					time.Sleep(c.reconnectionStartingWaitTime) //wait for this duration
-				}else{ //if its been more than a minute since the last connection
+				} else { //if its been more than a minute since the last connection
 					c.reconnectionStartingWaitTime = time.Second //reset the wait time
 				}
 			}
 			now := time.Now()
 			c.lastConnection = &now
 			err := c.connect()
-			if err != nil{
+			if err != nil {
 				c.error(&err)
-			}else{
+			} else {
 				c.listen()
 			}
-			c.reconnectionStartingWaitTime *= 2 //double the wait time
-			if c.reconnectionStartingWaitTime > (5 * time.Minute){ // if wait time longer than 5 minutes
+			c.reconnectionStartingWaitTime *= 2                     //double the wait time
+			if c.reconnectionStartingWaitTime > (5 * time.Minute) { // if wait time longer than 5 minutes
 				c.reconnectionStartingWaitTime = 5 * time.Minute //set it to 5 minutes
 			}
 		}
@@ -129,33 +136,32 @@ func (c *GatewayConnection) connect() error {
 
 	ticker := time.NewTicker(c.heartbeatInterval * time.Millisecond)
 
-
 	go func() {
 		for {
-			select{
-			case <- ticker.C:
-				if c.lastHeartbeatAck != nil{
-					if time.Now().Sub(*c.lastHeartbeatAck) > (c.heartbeatInterval * time.Millisecond){
+			select {
+			case <-ticker.C:
+				if c.lastHeartbeatAck != nil {
+					if time.Now().Sub(*c.lastHeartbeatAck) > (c.heartbeatInterval * time.Millisecond) {
 						c.close(websocket.CloseAbnormalClosure)
 						c.debug("No acknowledgement between heartbeats")
 						return
 					}
 				}
 				c.heartbeat()
-			case <- c.heartbeatChannel:
+			case <-c.heartbeatChannel:
 				return
 			}
 		}
 	}()
 
 	var authError error
-	if c.lastSequence != 0{
+	if c.lastSequence != 0 {
 		authError = c.resume()
-	}else{
+	} else {
 		authError = c.identify()
 	}
 
-	if authError != nil{
+	if authError != nil {
 		return authError
 	}
 
@@ -176,14 +182,14 @@ func (c *GatewayConnection) close(closeCode int) {
 
 	err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, ""))
 
-	if err != nil{
+	if err != nil {
 		err := c.conn.Close()
 		c.error(&err)
 	}
 
-	select{
-		case <- c.closed:
-		case <- time.After(time.Second):
+	select {
+	case <-c.closed:
+	case <-time.After(time.Second):
 	}
 
 	c.debug("Gateway connection closed")
@@ -240,12 +246,12 @@ func (c *GatewayConnection) heartbeat() {
 	}
 	err := c.write(payload)
 
-	if err != nil{
+	if err != nil {
 		customErr := errors.New("failed to emit heartbeat")
 		c.error(&customErr)
 		c.error(&err)
 		c.close(websocket.CloseAbnormalClosure)
-	}else{
+	} else {
 		c.debug("Heartbeat emitted")
 	}
 }
@@ -261,18 +267,18 @@ func (c *GatewayConnection) listen() {
 	for {
 		payload, err := c.read()
 
-		if err != nil{
+		if err != nil {
 			return
 		}
 
 		switch payload.Op {
 		case 0:
 			c.debug("Received event dispatch")
-			if payload.T == "READY"{
+			if payload.T == "READY" {
 				var ready ReadyEvent
 				err := json.Unmarshal(payload.D, &ready)
 
-				if err != nil{
+				if err != nil {
 					c.error(&err)
 					c.close(websocket.CloseAbnormalClosure)
 				}
@@ -300,7 +306,7 @@ func (c *GatewayConnection) listen() {
 
 			c.close(websocket.CloseAbnormalClosure)
 
-			if !resume{
+			if !resume {
 				c.invalidateSession()
 			}
 
@@ -325,13 +331,13 @@ func (c *GatewayConnection) read() (GatewayPayload, error) {
 }
 
 func (c *GatewayConnection) debug(text interface{}) {
-	fmt.Println(text)
+	c.logger.Print(text)
 	//logp.Info("%v", text)
 }
 
 func (c *GatewayConnection) error(err *error) {
-	if *err != nil{
-		fmt.Println(err)
+	if *err != nil {
+		c.logger.Fatal(err)
 		//logp.Err("%v", err)
 	}
 }
