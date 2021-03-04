@@ -71,7 +71,7 @@ func (r *request) Route(path string) *request {
 	return r
 }
 
-func (r *request) Query(query string) *request{
+func (r *request) Query(query string) *request {
 	r.url += "?" + query
 	return r
 }
@@ -182,7 +182,8 @@ func (b *Bucket) execute(request *request) bool {
 
 	resp, _, execErr := request.execute()
 
-	if execErr != nil{
+	if execErr != nil {
+		fmt.Println(execErr)
 		return false
 	}
 
