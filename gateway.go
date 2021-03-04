@@ -3,11 +3,13 @@ package discordgo
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
-	"os"
 	"time"
 )
+
+var version = "0.1.7"
 
 type GatewayConnection struct {
 	Url                          string
@@ -27,10 +29,9 @@ type GatewayConnection struct {
 	logger                       *log.Logger
 }
 
-func ConnectToGateway(token string, intents int, handler func(eventName string, eventData json.RawMessage)) (*GatewayConnection, error) {
-	logger := log.New(os.Stdout, "DiscordGo-Lite", 0)
-
-	logger.Print("DiscordGo-Lite V0.1.4")
+func ConnectToGateway(token string, intents int, logger *log.Logger, handler func(eventName string, eventData json.RawMessage)) (*GatewayConnection, error) {
+	logger.SetPrefix("[DiscordGo-Lite]\t")
+	logger.Printf("Version %s", version)
 
 	var gatewayInfo = make(chan []byte)
 	NewRestRequest().
@@ -48,6 +49,10 @@ func ConnectToGateway(token string, intents int, handler func(eventName string, 
 
 	if err != nil {
 		return nil, err
+	}
+
+	if gatewayResponse.Url == "" {
+		return nil, errors.New("could not get websocket URL. bot token may be incorrect")
 	}
 
 	c := GatewayConnection{
@@ -331,13 +336,17 @@ func (c *GatewayConnection) read() (GatewayPayload, error) {
 }
 
 func (c *GatewayConnection) debug(text interface{}) {
+	prefix := fmt.Sprintf("%s\t%s\t[DiscordGo-Lite %s]\t", time.Now().Format("2006-01-02T15:04:05Z07:00"), "DEBUG", version)
+	c.logger.SetPrefix(prefix)
 	c.logger.Print(text)
 	//logp.Info("%v", text)
 }
 
 func (c *GatewayConnection) error(err *error) {
 	if *err != nil {
-		c.logger.Fatal(err)
+		prefix := fmt.Sprintf("%s\t%s\t[DiscordGo-Lite %s]\t", time.Now().Format("2006-01-02T15:04:05Z07:00"), "ERROR", version)
+		c.logger.SetPrefix(prefix)
+		c.logger.Print(err)
 		//logp.Err("%v", err)
 	}
 }
